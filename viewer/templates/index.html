@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>流量日志查看器</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+<style>
+  body { background: #0f1117; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
+  .navbar { background: #1a1f2e !important; border-bottom: 1px solid #2d3748; }
+  .card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 10px; }
+  .card-header { background: #212836; border-bottom: 1px solid #2d3748; }
+  .stat-card { transition: transform .15s; }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-value { font-size: 2rem; font-weight: 700; }
+  .stat-label { font-size: .78rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; }
+  .filter-bar { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  .form-control, .form-select { background: #0f1117; border-color: #2d3748; color: #e2e8f0; }
+  .form-control:focus, .form-select:focus { background: #0f1117; border-color: #4f8ef7; color: #e2e8f0; box-shadow: 0 0 0 2px rgba(79,142,247,.25); }
+  .form-control::placeholder { color: #4a5568; }
+  .table { color: #e2e8f0; --bs-table-bg: transparent; }
+  .table thead th { background: #212836; color: #94a3b8; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; border-color: #2d3748; position: sticky; top: 0; z-index: 1; }
+  .table tbody tr { border-color: #2d3748; cursor: pointer; transition: background .1s; }
+  .table tbody tr:hover { background: #212836 !important; }
+  .table td { vertical-align: middle; font-size: .85rem; border-color: #2d3748; }
+  .badge-method { font-family: monospace; font-size: .72rem; padding: 3px 7px; border-radius: 4px; font-weight: 700; }
+  .m-GET    { background: #1a3a6b; color: #60a5fa; }
+  .m-POST   { background: #1a4a2e; color: #4ade80; }
+  .m-PUT    { background: #3d2c00; color: #fbbf24; }
+  .m-PATCH  { background: #3d1f00; color: #fb923c; }
+  .m-DELETE { background: #3d1a1a; color: #f87171; }
+  .m-HEAD   { background: #2a1f4a; color: #a78bfa; }
+  .m-OTHER  { background: #1f2a3d; color: #94a3b8; }
+  .s-2xx { color: #4ade80; }
+  .s-3xx { color: #60a5fa; }
+  .s-4xx { color: #fb923c; }
+  .s-5xx { color: #f87171; }
+  .s-1xx { color: #94a3b8; }
+  .url-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c4d0e8; }
+  .host-cell { color: #7eb3f7; font-weight: 500; }
+  .modal-content { background: #1a1f2e; border: 1px solid #2d3748; color: #e2e8f0; }
+  .modal-header { background: #212836; border-bottom: 1px solid #2d3748; }
+  .modal-footer { background: #212836; border-top: 1px solid #2d3748; }
+  .nav-tabs .nav-link { color: #94a3b8; border-color: transparent; }
+  .nav-tabs .nav-link.active { color: #e2e8f0; background: #0f1117; border-color: #2d3748 #2d3748 #0f1117; }
+  .nav-tabs { border-color: #2d3748; }
+  pre.body-pre { background: #0f1117; border: 1px solid #2d3748; border-radius: 6px; padding: 12px; white-space: pre-wrap; word-break: break-all; font-size: .8rem; max-height: 380px; overflow-y: auto; color: #a3c4f5; }
+  .kv-table { font-size: .82rem; }
+  .kv-table td:first-child { color: #7eb3f7; font-weight: 500; white-space: nowrap; padding-right: 12px; }
+  .kv-table td:last-child { word-break: break-all; color: #c4d0e8; }
+  .pagination .page-link { background: #1a1f2e; border-color: #2d3748; color: #94a3b8; }
+  .pagination .page-link:hover { background: #212836; color: #e2e8f0; }
+  .pagination .page-item.active .page-link { background: #4f8ef7; border-color: #4f8ef7; color: #fff; }
+  .pagination .page-item.disabled .page-link { background: #1a1f2e; color: #4a5568; }
+  .chart-bar-wrap { height: 80px; display: flex; align-items: flex-end; gap: 2px; overflow: hidden; }
+  .chart-bar { background: #3b82f6; border-radius: 3px 3px 0 0; transition: background .15s; flex: 1; min-width: 4px; }
+  .chart-bar:hover { background: #60a5fa; }
+  .empty-state { text-align: center; padding: 60px 20px; color: #4a5568; }
+  .empty-state i { font-size: 3rem; margin-bottom: 12px; display: block; }
+  .loading-row td { text-align: center; padding: 40px; color: #4a5568; }
+  #autoRefreshBtn.active { background: #1a4a2e; border-color: #4ade80; color: #4ade80; }
+  .content-type-badge { font-size: .68rem; color: #64748b; }
+  .size-cell { font-family: monospace; color: #64748b; font-size: .8rem; }
+</style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark px-3 py-2">
+  <span class="navbar-brand fw-bold">
+    <i class="bi bi-activity text-primary me-2"></i>流量日志查看器
+  </span>
+  <div class="d-flex align-items-center gap-3">
+    <span class="text-muted small" id="lastUpdate"></span>
+    <button class="btn btn-sm btn-outline-secondary" id="autoRefreshBtn" onclick="toggleAutoRefresh()">
+      <i class="bi bi-arrow-repeat me-1"></i>自动刷新
+    </button>
+    <button class="btn btn-sm btn-outline-danger" onclick="clearLogs()">
+      <i class="bi bi-trash me-1"></i>清空日志
+    </button>
+  </div>
+</nav>
+
+<div class="container-fluid p-3">
+
+  <!-- Stats Row -->
+  <div class="row g-3 mb-3" id="statsRow">
+    <div class="col-6 col-md-3">
+      <div class="card stat-card p-3">
+        <div class="stat-value text-primary" id="sTotalReqs">—</div>
+        <div class="stat-label">总请求数</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card p-3">
+        <div class="stat-value text-info" id="sDomains">—</div>
+        <div class="stat-label">唯一域名</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card p-3">
+        <div class="stat-value text-warning" id="sAvgDur">—</div>
+        <div class="stat-label">平均响应时间 (ms)</div>
+      </div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card stat-card p-3">
+        <div class="stat-value" id="sErrRate" style="color:#f87171">—</div>
+        <div class="stat-label">错误率 (4xx/5xx)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Row -->
+  <div class="row g-3 mb-3">
+    <div class="col-md-4">
+      <div class="card p-3 h-100">
+        <div class="card-header small text-muted mb-2">HTTP 方法分布</div>
+        <div id="methodChart" class="d-flex flex-wrap gap-2 mt-2"></div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3 h-100">
+        <div class="card-header small text-muted mb-2">状态码分布</div>
+        <div id="statusChart" class="d-flex flex-wrap gap-2 mt-2"></div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card p-3 h-100">
+        <div class="card-header small text-muted mb-2">请求时间线</div>
+        <div class="chart-bar-wrap" id="timelineChart"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Bar -->
+  <div class="filter-bar">
+    <div class="row g-2 align-items-end">
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">域名</label>
+        <select class="form-select form-select-sm" id="fDomain" onchange="applyFilters()">
+          <option value="">全部</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">方法</label>
+        <select class="form-select form-select-sm" id="fMethod" onchange="applyFilters()">
+          <option value="">全部</option>
+          <option>GET</option><option>POST</option><option>PUT</option>
+          <option>PATCH</option><option>DELETE</option><option>HEAD</option><option>OPTIONS</option>
+        </select>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">状态码范围</label>
+        <div class="input-group input-group-sm">
+          <input type="number" class="form-control" id="fStatusMin" placeholder="200" min="100" max="599" onchange="applyFilters()">
+          <span class="input-group-text bg-dark border-secondary text-muted">~</span>
+          <input type="number" class="form-control" id="fStatusMax" placeholder="599" min="100" max="599" onchange="applyFilters()">
+        </div>
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">URL 搜索</label>
+        <input type="text" class="form-control form-control-sm" id="fSearch" placeholder="关键词..." oninput="debounceFilter()">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">Body 搜索</label>
+        <input type="text" class="form-control form-control-sm" id="fBodySearch" placeholder="关键词..." oninput="debounceFilter()">
+      </div>
+      <div class="col-6 col-md-2">
+        <label class="form-label small text-muted mb-1">每页条数</label>
+        <select class="form-select form-select-sm" id="fPerPage" onchange="applyFilters()">
+          <option value="20">20</option>
+          <option value="50" selected>50</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+        </select>
+      </div>
+    </div>
+    <div class="mt-2 d-flex gap-2">
+      <button class="btn btn-sm btn-outline-secondary" onclick="resetFilters()">
+        <i class="bi bi-x-circle me-1"></i>重置过滤
+      </button>
+      <button class="btn btn-sm btn-outline-danger" onclick="filterErrors()">
+        <i class="bi bi-exclamation-triangle me-1"></i>仅看错误
+      </button>
+      <button class="btn btn-sm btn-outline-info" onclick="filterPOST()">
+        <i class="bi bi-send me-1"></i>仅看 POST
+      </button>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center py-2">
+      <span class="small text-muted">
+        共 <strong id="totalCount" class="text-light">0</strong> 条记录
+      </span>
+      <div id="paginationTop"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-hover mb-0">
+        <thead>
+          <tr>
+            <th style="width:140px">时间</th>
+            <th style="width:70px">方法</th>
+            <th style="width:180px">域名</th>
+            <th>路径</th>
+            <th style="width:70px">状态</th>
+            <th style="width:90px">耗时</th>
+            <th style="width:100px">响应大小</th>
+          </tr>
+        </thead>
+        <tbody id="logTable">
+          <tr class="loading-row"><td colspan="7"><i class="bi bi-hourglass-split me-2"></i>加载中...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card-footer d-flex justify-content-center py-2">
+      <div id="paginationBottom"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Detail Modal -->
+<div class="modal fade" id="detailModal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <div>
+          <span id="dMethod" class="badge-method me-2"></span>
+          <span id="dUrl" class="small text-break" style="color:#c4d0e8"></span>
+        </div>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body p-0">
+        <ul class="nav nav-tabs px-3 pt-2" id="detailTabs">
+          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tabReq">请求</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabRes">响应</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tabMeta">元数据</button></li>
+        </ul>
+        <div class="tab-content p-3">
+          <div class="tab-pane fade show active" id="tabReq">
+            <h6 class="text-muted small mb-2">请求头</h6>
+            <table class="table kv-table table-sm mb-3"><tbody id="dReqHeaders"></tbody></table>
+            <h6 class="text-muted small mb-2">请求 Body</h6>
+            <pre class="body-pre" id="dReqBody"></pre>
+          </div>
+          <div class="tab-pane fade" id="tabRes">
+            <h6 class="text-muted small mb-2">响应头</h6>
+            <table class="table kv-table table-sm mb-3"><tbody id="dResHeaders"></tbody></table>
+            <h6 class="text-muted small mb-2">响应 Body</h6>
+            <pre class="body-pre" id="dResBody"></pre>
+          </div>
+          <div class="tab-pane fade" id="tabMeta">
+            <table class="table kv-table table-sm"><tbody id="dMeta"></tbody></table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer py-2">
+        <span class="text-muted small me-auto" id="dStatus"></span>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+// ── State ───────────────────────────────────────────────────────────────────
+let currentPage = 1;
+let totalPages = 1;
+let autoRefreshTimer = null;
+let debounceTimer = null;
+const modal = new bootstrap.Modal(document.getElementById('detailModal'));
+
+// ── Utilities ────────────────────────────────────────────────────────────────
+function methodBadge(m) {
+  const cls = ['GET','POST','PUT','PATCH','DELETE','HEAD'].includes(m) ? `m-${m}` : 'm-OTHER';
+  return `<span class="badge-method ${cls}">${m}</span>`;
+}
+function statusClass(sc) {
+  if (!sc) return '';
+  if (sc < 200) return 's-1xx';
+  if (sc < 300) return 's-2xx';
+  if (sc < 400) return 's-3xx';
+  if (sc < 500) return 's-4xx';
+  return 's-5xx';
+}
+function fmtSize(b) {
+  if (!b || b === 0) return '—';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  return (b/1048576).toFixed(1) + ' MB';
+}
+function fmtDur(ms) {
+  if (ms == null) return '—';
+  return ms < 1000 ? ms + ' ms' : (ms/1000).toFixed(2) + ' s';
+}
+function escHtml(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function buildParams() {
+  const p = new URLSearchParams();
+  const d = document.getElementById('fDomain').value;
+  const m = document.getElementById('fMethod').value;
+  const smin = document.getElementById('fStatusMin').value;
+  const smax = document.getElementById('fStatusMax').value;
+  const q = document.getElementById('fSearch').value;
+  const bq = document.getElementById('fBodySearch').value;
+  const pp = document.getElementById('fPerPage').value;
+  if (d) p.set('domain', d);
+  if (m) p.set('method', m);
+  if (smin) p.set('status_min', smin);
+  if (smax) p.set('status_max', smax);
+  if (q) p.set('search', q);
+  if (bq) p.set('body_search', bq);
+  p.set('per_page', pp);
+  p.set('page', currentPage);
+  return p;
+}
+
+// ── Load Domains ─────────────────────────────────────────────────────────────
+async function loadDomains() {
+  const r = await fetch('/api/domains');
+  const domains = await r.json();
+  const sel = document.getElementById('fDomain');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">全部域名</option>';
+  domains.forEach(d => {
+    const o = document.createElement('option');
+    o.value = d; o.textContent = d;
+    if (d === cur) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+// ── Load Logs ─────────────────────────────────────────────────────────────────
+async function loadLogs() {
+  const params = buildParams();
+  const r = await fetch('/api/logs?' + params);
+  const data = await r.json();
+
+  totalPages = data.pages || 1;
+  currentPage = data.page || 1;
+  document.getElementById('totalCount').textContent = data.total;
+  document.getElementById('lastUpdate').textContent = '更新于 ' + new Date().toLocaleTimeString();
+
+  renderTable(data.items);
+  renderPagination();
+}
+
+function renderTable(items) {
+  const tbody = document.getElementById('logTable');
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="7" class="empty-state"><i class="bi bi-inbox"></i>暂无匹配的记录</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = items.map(e => {
+    const path = escHtml((e.path || '/').length > 80 ? (e.path||'/').substring(0,80)+'…' : (e.path||'/'));
+    const ct = e.content_type ? `<br><span class="content-type-badge">${escHtml(e.content_type.split(';')[0])}</span>` : '';
+    return `<tr onclick="showDetail('${escHtml(e.id)}')">
+      <td class="text-muted small">${escHtml(e.datetime||'')}</td>
+      <td>${methodBadge(e.method||'')}</td>
+      <td class="host-cell small">${escHtml(e.host||'')}</td>
+      <td class="url-cell small">${path}${ct}</td>
+      <td class="${statusClass(e.status_code)} fw-bold">${e.status_code||'—'}</td>
+      <td class="size-cell">${fmtDur(e.duration_ms)}</td>
+      <td class="size-cell">${fmtSize(e.response_size)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderPagination() {
+  if (totalPages <= 1) {
+    document.getElementById('paginationTop').innerHTML = '';
+    document.getElementById('paginationBottom').innerHTML = '';
+    return;
+  }
+  const range = [];
+  const start = Math.max(1, currentPage - 2);
+  const end = Math.min(totalPages, currentPage + 2);
+  if (start > 1) range.push(1, '...');
+  for (let i = start; i <= end; i++) range.push(i);
+  if (end < totalPages) range.push('...', totalPages);
+
+  const html = `<nav><ul class="pagination pagination-sm mb-0">
+    <li class="page-item ${currentPage===1?'disabled':''}">
+      <button class="page-link" onclick="goPage(${currentPage-1})"><i class="bi bi-chevron-left"></i></button>
+    </li>
+    ${range.map(p => p==='...' ?
+      `<li class="page-item disabled"><span class="page-link">…</span></li>` :
+      `<li class="page-item ${p===currentPage?'active':''}"><button class="page-link" onclick="goPage(${p})">${p}</button></li>`
+    ).join('')}
+    <li class="page-item ${currentPage===totalPages?'disabled':''}">
+      <button class="page-link" onclick="goPage(${currentPage+1})"><i class="bi bi-chevron-right"></i></button>
+    </li>
+  </ul></nav>`;
+  document.getElementById('paginationTop').innerHTML = html;
+  document.getElementById('paginationBottom').innerHTML = html;
+}
+
+function goPage(p) {
+  if (p < 1 || p > totalPages) return;
+  currentPage = p;
+  loadLogs();
+}
+
+// ── Load Stats ────────────────────────────────────────────────────────────────
+async function loadStats() {
+  const params = buildParams();
+  params.delete('page');
+  params.delete('per_page');
+  const r = await fetch('/api/stats?' + params);
+  const s = await r.json();
+
+  document.getElementById('sTotalReqs').textContent = s.total.toLocaleString();
+  document.getElementById('sDomains').textContent = s.domains.length.toLocaleString();
+  document.getElementById('sAvgDur').textContent = s.avg_duration_ms.toLocaleString();
+  document.getElementById('sErrRate').textContent = s.error_rate + '%';
+
+  // Method chart
+  const mc = document.getElementById('methodChart');
+  mc.innerHTML = Object.entries(s.methods).sort((a,b)=>b[1]-a[1]).map(([m,c])=>{
+    const cls = ['GET','POST','PUT','PATCH','DELETE','HEAD'].includes(m)?`m-${m}`:'m-OTHER';
+    return `<span class="badge-method ${cls} me-1">${m} <strong>${c}</strong></span>`;
+  }).join('');
+
+  // Status chart
+  const sc = document.getElementById('statusChart');
+  const scColors = {'2xx':'#4ade80','3xx':'#60a5fa','4xx':'#fb923c','5xx':'#f87171','1xx':'#94a3b8'};
+  sc.innerHTML = Object.entries(s.status_dist).sort().map(([k,v])=>
+    `<span class="badge me-1 px-2 py-1" style="background:${scColors[k]||'#64748b'}20;color:${scColors[k]||'#64748b'};border:1px solid ${scColors[k]||'#64748b'}40">${k}: <strong>${v}</strong></span>`
+  ).join('');
+
+  // Timeline chart
+  const tl = document.getElementById('timelineChart');
+  if (s.timeline.length > 0) {
+    const max = Math.max(...s.timeline.map(t=>t.count), 1);
+    tl.innerHTML = s.timeline.map(t => {
+      const h = Math.max(4, Math.round(t.count / max * 76));
+      return `<div class="chart-bar" style="height:${h}px" title="${t.label}: ${t.count} 次请求"></div>`;
+    }).join('');
+  } else {
+    tl.innerHTML = '<span class="text-muted small">暂无数据</span>';
+  }
+}
+
+// ── Detail Modal ──────────────────────────────────────────────────────────────
+async function showDetail(id) {
+  const r = await fetch(`/api/log/${id}`);
+  if (!r.ok) { alert('获取详情失败'); return; }
+  const e = await r.json();
+
+  document.getElementById('dUrl').textContent = e.url || '';
+  const dm = document.getElementById('dMethod');
+  dm.className = 'badge-method ' + (['GET','POST','PUT','PATCH','DELETE','HEAD'].includes(e.method)?`m-${e.method}`:'m-OTHER');
+  dm.textContent = e.method || '';
+
+  document.getElementById('dStatus').textContent =
+    `状态 ${e.status_code} · ${fmtDur(e.duration_ms)} · 响应 ${fmtSize(e.response_size)}`;
+
+  // Headers
+  function renderHeaders(tbodyId, headers) {
+    const tb = document.getElementById(tbodyId);
+    if (!headers || !Object.keys(headers).length) {
+      tb.innerHTML = '<tr><td colspan="2" class="text-muted">无</td></tr>';
+      return;
+    }
+    tb.innerHTML = Object.entries(headers).map(([k,v]) =>
+      `<tr><td>${escHtml(k)}</td><td>${escHtml(v)}</td></tr>`
+    ).join('');
+  }
+  renderHeaders('dReqHeaders', e.request_headers);
+  renderHeaders('dResHeaders', e.response_headers);
+
+  // Bodies
+  function renderBody(preId, body, contentType) {
+    const pre = document.getElementById(preId);
+    if (!body) { pre.textContent = '(空)'; return; }
+    const ct = (contentType||'').toLowerCase();
+    if (ct.includes('json')) {
+      try { pre.textContent = JSON.stringify(JSON.parse(body), null, 2); return; } catch(e) {}
+    }
+    pre.textContent = body;
+  }
+  renderBody('dReqBody', e.request_body, e.request_headers?.['content-type']||'');
+  renderBody('dResBody', e.response_body, e.content_type);
+
+  // Meta
+  const meta = document.getElementById('dMeta');
+  meta.innerHTML = [
+    ['时间', e.datetime],
+    ['主机', e.host],
+    ['完整 URL', e.url],
+    ['Content-Type', e.content_type],
+    ['请求大小', fmtSize(e.request_size)],
+    ['响应大小', fmtSize(e.response_size)],
+    ['耗时', fmtDur(e.duration_ms)],
+    ['时间戳', e.timestamp],
+  ].map(([k,v]) => `<tr><td>${escHtml(k)}</td><td>${escHtml(v||'—')}</td></tr>`).join('');
+
+  // Reset to first tab
+  document.querySelector('#detailTabs .nav-link.active')?.classList.remove('active');
+  document.querySelector('#detailTabs .nav-link')?.classList.add('active');
+  document.querySelectorAll('.tab-pane').forEach(p => { p.classList.remove('show','active'); });
+  document.getElementById('tabReq').classList.add('show','active');
+
+  modal.show();
+}
+
+// ── Filters ───────────────────────────────────────────────────────────────────
+function applyFilters() {
+  currentPage = 1;
+  loadLogs();
+  loadStats();
+}
+
+function debounceFilter() {
+  clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(applyFilters, 400);
+}
+
+function resetFilters() {
+  document.getElementById('fDomain').value = '';
+  document.getElementById('fMethod').value = '';
+  document.getElementById('fStatusMin').value = '';
+  document.getElementById('fStatusMax').value = '';
+  document.getElementById('fSearch').value = '';
+  document.getElementById('fBodySearch').value = '';
+  applyFilters();
+}
+
+function filterErrors() {
+  document.getElementById('fStatusMin').value = '400';
+  document.getElementById('fStatusMax').value = '599';
+  applyFilters();
+}
+
+function filterPOST() {
+  document.getElementById('fMethod').value = 'POST';
+  applyFilters();
+}
+
+// ── Auto Refresh ──────────────────────────────────────────────────────────────
+function toggleAutoRefresh() {
+  const btn = document.getElementById('autoRefreshBtn');
+  if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = null;
+    btn.classList.remove('active');
+    btn.innerHTML = '<i class="bi bi-arrow-repeat me-1"></i>自动刷新';
+  } else {
+    autoRefreshTimer = setInterval(refresh, 5000);
+    btn.classList.add('active');
+    btn.innerHTML = '<i class="bi bi-pause me-1"></i>停止刷新';
+  }
+}
+
+function refresh() {
+  loadDomains();
+  loadLogs();
+  loadStats();
+}
+
+async function clearLogs() {
+  if (!confirm('确定要清空所有日志吗？此操作不可恢复。')) return;
+  await fetch('/api/clear', { method: 'POST' });
+  refresh();
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+loadDomains().then(refresh);
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# mitmproxy 流量捕获配置
+# ================================
+
+# 目标站点过滤列表（留空则捕获所有流量）
+# 支持域名子串匹配，例如 "example.com" 会匹配 api.example.com、www.example.com
+target_sites:
+  # - example.com
+  # - api.myservice.com
+  # - httpbin.org
+
+# 日志文件路径（相对于 traffic_logger.py 所在目录）
+log_file: logs/traffic.jsonl
+
+# 单个请求/响应 body 最大记录字节数（超出部分会被截断）
+max_body_size: 102400  # 100 KB
+
+# mitmproxy 监听端口
+proxy_port: 8081
+
+# Web 查看器端口
+viewer_port: 8888
+
+# 上游代理（Clash）
+# mitmproxy 捕获后会将流量转发到此代理，再由 Clash 路由出去
+# 留空则直连（不经过 Clash）
+upstream_proxy: http://127.0.0.1:7890
