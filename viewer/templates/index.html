@@ -7,23 +7,79 @@
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
 <style>
+  /* ── Bootstrap CSS variable overrides (must come first) ─────────────── */
+  :root {
+    --bs-body-color: #e2e8f0;
+    --bs-body-bg: #0f1117;
+    --bs-border-color: #2d3748;
+    --bs-border-color-translucent: rgba(255,255,255,.1);
+    --bs-secondary-color: #94a3b8;
+    --bs-secondary-bg: #1a1f2e;
+    --bs-tertiary-bg: #212836;
+    --bs-emphasis-color: #f8fafc;
+    --bs-link-color: #7eb3f7;
+    --bs-link-hover-color: #a3c4f5;
+  }
+
   body { background: #0f1117; color: #e2e8f0; font-family: 'Segoe UI', system-ui, sans-serif; }
   .navbar { background: #1a1f2e !important; border-bottom: 1px solid #2d3748; }
   .card { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 10px; }
-  .card-header { background: #212836; border-bottom: 1px solid #2d3748; }
+  .card-header { background: #212836; border-bottom: 1px solid #2d3748; color: #94a3b8; }
   .stat-card { transition: transform .15s; }
   .stat-card:hover { transform: translateY(-2px); }
   .stat-value { font-size: 2rem; font-weight: 700; }
   .stat-label { font-size: .78rem; color: #94a3b8; text-transform: uppercase; letter-spacing: .05em; }
   .filter-bar { background: #1a1f2e; border: 1px solid #2d3748; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
-  .form-control, .form-select { background: #0f1117; border-color: #2d3748; color: #e2e8f0; }
-  .form-control:focus, .form-select:focus { background: #0f1117; border-color: #4f8ef7; color: #e2e8f0; box-shadow: 0 0 0 2px rgba(79,142,247,.25); }
+
+  /* ── Form controls ───────────────────────────────────────────────────── */
+  .form-control, .form-select {
+    background: #0f1117 !important;
+    border-color: #2d3748;
+    color: #e2e8f0 !important;
+  }
+  .form-control:focus, .form-select:focus {
+    border-color: #4f8ef7;
+    box-shadow: 0 0 0 2px rgba(79,142,247,.25);
+  }
   .form-control::placeholder { color: #4a5568; }
-  .table { color: #e2e8f0; --bs-table-bg: transparent; }
-  .table thead th { background: #212836; color: #94a3b8; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; border-color: #2d3748; position: sticky; top: 0; z-index: 1; }
+  /* Dropdown arrow visible on dark background */
+  .form-select {
+    --bs-form-select-bg-img: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%2394a3b8' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e");
+  }
+  .form-select option { background: #1a1f2e; color: #e2e8f0; }
+  .input-group-text { background: #1a1f2e; border-color: #2d3748; color: #94a3b8; }
+
+  /* ── Table — full BS5 variable set to prevent Bootstrap overriding ───── */
+  .table {
+    color: #e2e8f0;
+    --bs-table-bg: transparent;
+    --bs-table-color: #e2e8f0;
+    --bs-table-border-color: #2d3748;
+    --bs-table-hover-bg: #212836;
+    --bs-table-hover-color: #e2e8f0;
+    --bs-table-striped-bg: rgba(255,255,255,.03);
+    --bs-table-striped-color: #e2e8f0;
+    --bs-table-active-bg: #212836;
+    --bs-table-active-color: #e2e8f0;
+  }
+  .table thead th {
+    background: #212836;
+    color: #94a3b8;
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+    border-color: #2d3748;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
   .table tbody tr { border-color: #2d3748; cursor: pointer; transition: background .1s; }
   .table tbody tr:hover { background: #212836 !important; }
+  /* Ensure hover doesn't flip text to dark via Bootstrap's hover-color variable */
+  .table-hover > tbody > tr:hover > * { color: inherit; }
   .table td { vertical-align: middle; font-size: .85rem; border-color: #2d3748; }
+
+  /* ── Method badges ───────────────────────────────────────────────────── */
   .badge-method { font-family: monospace; font-size: .72rem; padding: 3px 7px; border-radius: 4px; font-weight: 700; }
   .m-GET    { background: #1a3a6b; color: #60a5fa; }
   .m-POST   { background: #1a4a2e; color: #4ade80; }
@@ -32,36 +88,53 @@
   .m-DELETE { background: #3d1a1a; color: #f87171; }
   .m-HEAD   { background: #2a1f4a; color: #a78bfa; }
   .m-OTHER  { background: #1f2a3d; color: #94a3b8; }
+
+  /* ── Status code colors ──────────────────────────────────────────────── */
   .s-2xx { color: #4ade80; }
   .s-3xx { color: #60a5fa; }
   .s-4xx { color: #fb923c; }
   .s-5xx { color: #f87171; }
   .s-1xx { color: #94a3b8; }
+
   .url-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c4d0e8; }
   .host-cell { color: #7eb3f7; font-weight: 500; }
+
+  /* ── Modal ───────────────────────────────────────────────────────────── */
   .modal-content { background: #1a1f2e; border: 1px solid #2d3748; color: #e2e8f0; }
   .modal-header { background: #212836; border-bottom: 1px solid #2d3748; }
   .modal-footer { background: #212836; border-top: 1px solid #2d3748; }
+
+  /* ── Nav tabs ────────────────────────────────────────────────────────── */
   .nav-tabs .nav-link { color: #94a3b8; border-color: transparent; }
   .nav-tabs .nav-link.active { color: #e2e8f0; background: #0f1117; border-color: #2d3748 #2d3748 #0f1117; }
   .nav-tabs { border-color: #2d3748; }
+
+  /* ── Detail body / kv-table ──────────────────────────────────────────── */
   pre.body-pre { background: #0f1117; border: 1px solid #2d3748; border-radius: 6px; padding: 12px; white-space: pre-wrap; word-break: break-all; font-size: .8rem; max-height: 380px; overflow-y: auto; color: #a3c4f5; }
   .kv-table { font-size: .82rem; }
+  .kv-table td { border-color: #2d3748; color: #e2e8f0; }
   .kv-table td:first-child { color: #7eb3f7; font-weight: 500; white-space: nowrap; padding-right: 12px; }
   .kv-table td:last-child { word-break: break-all; color: #c4d0e8; }
+
+  /* ── Pagination ──────────────────────────────────────────────────────── */
   .pagination .page-link { background: #1a1f2e; border-color: #2d3748; color: #94a3b8; }
   .pagination .page-link:hover { background: #212836; color: #e2e8f0; }
   .pagination .page-item.active .page-link { background: #4f8ef7; border-color: #4f8ef7; color: #fff; }
   .pagination .page-item.disabled .page-link { background: #1a1f2e; color: #4a5568; }
+
+  /* ── Charts ──────────────────────────────────────────────────────────── */
   .chart-bar-wrap { height: 80px; display: flex; align-items: flex-end; gap: 2px; overflow: hidden; }
   .chart-bar { background: #3b82f6; border-radius: 3px 3px 0 0; transition: background .15s; flex: 1; min-width: 4px; }
   .chart-bar:hover { background: #60a5fa; }
+
+  /* ── Misc ────────────────────────────────────────────────────────────── */
   .empty-state { text-align: center; padding: 60px 20px; color: #4a5568; }
   .empty-state i { font-size: 3rem; margin-bottom: 12px; display: block; }
-  .loading-row td { text-align: center; padding: 40px; color: #4a5568; }
+  .loading-row td { text-align: center; padding: 40px; color: #94a3b8; }
   #autoRefreshBtn.active { background: #1a4a2e; border-color: #4ade80; color: #4ade80; }
-  .content-type-badge { font-size: .68rem; color: #64748b; }
-  .size-cell { font-family: monospace; color: #64748b; font-size: .8rem; }
+  .content-type-badge { font-size: .68rem; color: #94a3b8; }
+  .size-cell { font-family: monospace; color: #94a3b8; font-size: .8rem; }
+  .text-muted { color: #94a3b8 !important; }
 </style>
 </head>
 <body>
@@ -155,7 +228,7 @@
         <label class="form-label small text-muted mb-1">状态码范围</label>
         <div class="input-group input-group-sm">
           <input type="number" class="form-control" id="fStatusMin" placeholder="200" min="100" max="599" onchange="applyFilters()">
-          <span class="input-group-text bg-dark border-secondary text-muted">~</span>
+          <span class="input-group-text">~</span>
           <input type="number" class="form-control" id="fStatusMax" placeholder="599" min="100" max="599" onchange="applyFilters()">
         </div>
       </div>
