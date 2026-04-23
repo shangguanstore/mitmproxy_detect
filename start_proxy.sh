@@ -4,7 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # 从 config.yaml 读取 upstream_proxy
-UPSTREAM=$(python3 -c "
+UPSTREAM=$(python -c "
 import yaml
 cfg = yaml.safe_load(open('config.yaml'))
 print(cfg.get('upstream_proxy') or '')

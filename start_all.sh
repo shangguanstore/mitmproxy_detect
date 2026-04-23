@@ -3,7 +3,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # 从 config.yaml 读取 upstream_proxy
-UPSTREAM=$(python3 -c "
+UPSTREAM=$(python -c "
 import yaml
 cfg = yaml.safe_load(open('config.yaml'))
 print(cfg.get('upstream_proxy') or '')
@@ -21,4 +21,4 @@ echo "[PID=$PROXY_PID] mitmproxy 已启动"
 
 trap "echo '正在停止代理...'; kill $PROXY_PID 2>/dev/null; exit" INT TERM
 
-python3 viewer/app.py
+python viewer/app.py

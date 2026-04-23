@@ -3,9 +3,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# sudo 会清空 PATH，恢复原用户的 PATH（保留 conda 等环境）
+if [ -n "${SUDO_USER:-}" ]; then
+    ORIGINAL_PATH=$(sudo -u "$SUDO_USER" bash -l -c 'echo $PATH' 2>/dev/null || echo "")
+    if [ -n "$ORIGINAL_PATH" ]; then
+        export PATH="$ORIGINAL_PATH:$PATH"
+    fi
+fi
+
 # 从 config.yaml 读取配置
 read_cfg() {
-    python3 -c "
+    python -c "
 import yaml
 cfg = yaml.safe_load(open('config.yaml'))
 print(cfg.get('$1', $2))
@@ -15,28 +23,20 @@ print(cfg.get('$1', $2))
 HTTP_PORT=$(read_cfg relay_http_port 80)
 HTTPS_PORT=$(read_cfg relay_https_port 443)
 
-# 检查端口权限
-check_port_permission() {
-    local port=$1
-    if [ "$port" -lt 1024 ] && [ "$(id -u)" -ne 0 ]; then
-        if ! python3 -c "import socket; s=socket.socket(); s.bind(('', $port)); s.close()" 2>/dev/null; then
-            echo "[错误] 端口 $port 需要 root 权限或 cap_net_bind_service"
-            echo "       解决方式（二选一）："
-            echo "       1. sudo ./start_relay.sh"
-            echo "       2. sudo setcap 'cap_net_bind_service=+ep' \$(which mitmdump)"
-            exit 1
-        fi
+# 低端口权限提示（不阻止执行，让 mitmdump 自行失败并给出明确报错）
+if [ "$HTTP_PORT" -lt 1024 ] || [ "$HTTPS_PORT" -lt 1024 ]; then
+    if [ "$(id -u)" -ne 0 ]; then
+        echo "[提示] 端口 < 1024 需要权限，若启动失败请运行："
+        echo "       sudo -E ./start_relay.sh          # 保留当前环境变量"
+        echo "       或: sudo setcap 'cap_net_bind_service=+ep' \$(which mitmdump)"
+        echo ""
     fi
-}
-
-check_port_permission "$HTTP_PORT"
-check_port_permission "$HTTPS_PORT"
+fi
 
 echo "[Relay] HTTP  端口: $HTTP_PORT"
 echo "[Relay] HTTPS 端口: $HTTPS_PORT"
 echo ""
 
-# 通过环境变量告知插件当前是 relay 模式（无需修改 config.yaml）
 export MITM_RELAY_MODE=1
 
 # 启动 HTTP relay
@@ -74,4 +74,4 @@ cleanup() {
 trap cleanup INT TERM
 
 echo "[Viewer] 启动 Web 查看器..."
-python3 viewer/app.py
+python viewer/app.py
