@@ -34,10 +34,14 @@ upstream_proxy: http://127.0.0.1:7890
 # 是否启用 relay 模式
 relay_mode: false
 
-# relay 监听端口
-# 注意：80/443 需要 root 权限或 setcap，见 server_relay/README.md
+# 对外暴露的端口（开发机 hosts 指向这里）
 relay_http_port: 80
 relay_https_port: 443
+
+# mitmdump 实际监听的内部端口（普通用户权限即可）
+# start_relay.sh 会自动用 iptables 将 relay_http_port → relay_http_internal_port
+relay_http_internal_port: 8082
+relay_https_internal_port: 8083
 
 # relay 模式下对目标域名返回的 HTTP 状态码
 relay_response_code: 200

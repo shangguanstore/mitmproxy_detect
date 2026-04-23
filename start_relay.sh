@@ -3,38 +3,46 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# sudo 会清空 PATH，恢复原用户的 PATH（保留 conda 等环境）
-if [ -n "${SUDO_USER:-}" ]; then
-    ORIGINAL_PATH=$(sudo -u "$SUDO_USER" bash -l -c 'echo $PATH' 2>/dev/null || echo "")
-    if [ -n "$ORIGINAL_PATH" ]; then
-        export PATH="$ORIGINAL_PATH:$PATH"
-    fi
-fi
-
 # 从 config.yaml 读取配置
-read_cfg() {
-    python -c "
-import yaml
-cfg = yaml.safe_load(open('config.yaml'))
-print(cfg.get('$1', $2))
-"
+cfg() {
+    python -c "import yaml; cfg=yaml.safe_load(open('config.yaml')); print(cfg.get('$1', $2))"
 }
 
-HTTP_PORT=$(read_cfg relay_http_port 80)
-HTTPS_PORT=$(read_cfg relay_https_port 443)
+HTTP_PORT=$(cfg relay_http_port 80)
+HTTPS_PORT=$(cfg relay_https_port 443)
+HTTP_INTERNAL=$(cfg relay_http_internal_port 8082)
+HTTPS_INTERNAL=$(cfg relay_https_internal_port 8083)
 
-# 低端口权限提示（不阻止执行，让 mitmdump 自行失败并给出明确报错）
-if [ "$HTTP_PORT" -lt 1024 ] || [ "$HTTPS_PORT" -lt 1024 ]; then
-    if [ "$(id -u)" -ne 0 ]; then
-        echo "[提示] 端口 < 1024 需要权限，若启动失败请运行："
-        echo "       sudo -E ./start_relay.sh          # 保留当前环境变量"
-        echo "       或: sudo setcap 'cap_net_bind_service=+ep' \$(which mitmdump)"
-        echo ""
+# 如果对外端口 < 1024，用 iptables 重定向到内部高端口（只有 iptables 命令需要 sudo）
+IPTABLES_ADDED=0
+setup_iptables() {
+    echo "[iptables] $HTTP_PORT → $HTTP_INTERNAL (HTTP)"
+    echo "[iptables] $HTTPS_PORT → $HTTPS_INTERNAL (HTTPS)"
+    sudo iptables -t nat -A PREROUTING -p tcp --dport "$HTTP_PORT"  -j REDIRECT --to-port "$HTTP_INTERNAL"
+    sudo iptables -t nat -A PREROUTING -p tcp --dport "$HTTPS_PORT" -j REDIRECT --to-port "$HTTPS_INTERNAL"
+    IPTABLES_ADDED=1
+}
+
+cleanup_iptables() {
+    if [ "$IPTABLES_ADDED" -eq 1 ]; then
+        echo "[iptables] 清理规则..."
+        sudo iptables -t nat -D PREROUTING -p tcp --dport "$HTTP_PORT"  -j REDIRECT --to-port "$HTTP_INTERNAL" 2>/dev/null || true
+        sudo iptables -t nat -D PREROUTING -p tcp --dport "$HTTPS_PORT" -j REDIRECT --to-port "$HTTPS_INTERNAL" 2>/dev/null || true
     fi
+}
+
+if [ "$HTTP_PORT" -lt 1024 ] || [ "$HTTPS_PORT" -lt 1024 ]; then
+    setup_iptables
+    LISTEN_HTTP=$HTTP_INTERNAL
+    LISTEN_HTTPS=$HTTPS_INTERNAL
+else
+    LISTEN_HTTP=$HTTP_PORT
+    LISTEN_HTTPS=$HTTPS_PORT
 fi
 
-echo "[Relay] HTTP  端口: $HTTP_PORT"
-echo "[Relay] HTTPS 端口: $HTTPS_PORT"
+echo ""
+echo "[Relay] 对外端口  : HTTP=$HTTP_PORT  HTTPS=$HTTPS_PORT"
+echo "[Relay] 监听端口  : HTTP=$LISTEN_HTTP  HTTPS=$LISTEN_HTTPS"
 echo ""
 
 export MITM_RELAY_MODE=1
@@ -44,7 +52,7 @@ echo "[Relay] 启动 HTTP relay..."
 mitmdump -s traffic_logger.py \
     --mode "reverse:http://127.0.0.1:1" \
     --listen-host 0.0.0.0 \
-    --listen-port "$HTTP_PORT" \
+    --listen-port "$LISTEN_HTTP" \
     --set termlog_verbosity=warn \
     2>&1 | sed 's/^/[HTTP] /' &
 HTTP_PID=$!
@@ -54,7 +62,7 @@ echo "[Relay] 启动 HTTPS relay..."
 mitmdump -s traffic_logger.py \
     --mode "reverse:https://127.0.0.1:1" \
     --listen-host 0.0.0.0 \
-    --listen-port "$HTTPS_PORT" \
+    --listen-port "$LISTEN_HTTPS" \
     --set termlog_verbosity=warn \
     --set upstream_cert=false \
     2>&1 | sed 's/^/[HTTPS] /' &
@@ -68,6 +76,7 @@ cleanup() {
     echo "[Relay] 正在停止..."
     kill "$HTTP_PID" "$HTTPS_PID" 2>/dev/null || true
     wait "$HTTP_PID" "$HTTPS_PID" 2>/dev/null || true
+    cleanup_iptables
     echo "[Relay] 已停止"
     exit 0
 }
