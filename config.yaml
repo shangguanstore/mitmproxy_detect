@@ -14,13 +14,30 @@ log_file: logs/traffic.jsonl
 # 单个请求/响应 body 最大记录字节数（超出部分会被截断）
 max_body_size: 102400  # 100 KB
 
-# mitmproxy 监听端口
+# mitmproxy 监听端口（正向代理模式）
 proxy_port: 8081
 
 # Web 查看器端口
 viewer_port: 8888
 
-# 上游代理（Clash）
+# 上游代理（正向代理模式专用，Clash 等）
 # mitmproxy 捕获后会将流量转发到此代理，再由 Clash 路由出去
 # 留空则直连（不经过 Clash）
 upstream_proxy: http://127.0.0.1:7890
+
+# ================================
+# Relay 模式（反向代理，拦截不转发）
+# 使用场景：开发机修改 hosts 将域名指向本服务器，服务器接住流量并解析
+# 启动方式：./start_relay.sh
+# ================================
+
+# 是否启用 relay 模式
+relay_mode: false
+
+# relay 监听端口
+# 注意：80/443 需要 root 权限或 setcap，见 server_relay/README.md
+relay_http_port: 80
+relay_https_port: 443
+
+# relay 模式下对目标域名返回的 HTTP 状态码
+relay_response_code: 200

@@ -1,13 +1,15 @@
 """
 mitmproxy 流量捕获插件
-用法: mitmdump -s traffic_logger.py --listen-port 8081
+用法:
+  正向代理模式: mitmdump -s traffic_logger.py --listen-port 8081
+  Relay 模式:   ./start_relay.sh  （或手动设置 MITM_RELAY_MODE=1）
 """
 
 import json
 import os
 import time
 import yaml
-from mitmproxy import ctx
+from mitmproxy import ctx, http as mhttp
 
 
 def _load_config():
@@ -26,8 +28,17 @@ class TrafficLogger:
         self.log_file = open(self.log_path, "a", encoding="utf-8")
         self.target_sites = self.config.get("target_sites") or []
         self.max_body_size = self.config.get("max_body_size", 102400)
-        self._pending = {}  # flow.id -> request fields, cleared on response/error
+        # relay_mode 可通过 config.yaml 或环境变量 MITM_RELAY_MODE=1 开启
+        self.relay_mode = (
+            self.config.get("relay_mode", False)
+            or os.environ.get("MITM_RELAY_MODE") == "1"
+        )
+        self.relay_response_code = self.config.get("relay_response_code", 200)
+        self._pending = {}   # flow.id -> request fields
+        self._killed = set() # 主动 kill 的 flow id，error 钩子里跳过
         ctx.log.info(f"[TrafficLogger] 日志文件: {self.log_path}")
+        if self.relay_mode:
+            ctx.log.info("[TrafficLogger] 运行模式: relay（拦截不转发）")
         if self.target_sites:
             ctx.log.info(f"[TrafficLogger] 过滤站点: {self.target_sites}")
         else:
@@ -70,9 +81,19 @@ class TrafficLogger:
 
     def request(self, flow):
         if not self._should_log(flow):
+            if self.relay_mode:
+                # 非目标域名直接断开，不记录
+                self._killed.add(flow.id)
+                flow.kill()
             return
-        # 请求到达时立即缓存，保证 error() 也能拿到完整请求数据
         self._pending[flow.id] = self._req_fields(flow)
+        if self.relay_mode:
+            # relay 模式：拦截请求，返回空响应，不转发到上游
+            flow.response = mhttp.Response.make(
+                self.relay_response_code,
+                b"",
+                {"Content-Type": "text/plain"},
+            )
 
     def response(self, flow):
         base = self._pending.pop(flow.id, None)
@@ -105,15 +126,18 @@ class TrafficLogger:
         )
 
     def error(self, flow):
+        # 主动 kill 的 flow 不记录错误
+        if flow.id in self._killed:
+            self._killed.discard(flow.id)
+            return
+
         base = self._pending.pop(flow.id, None)
         if base is None:
-            # 没有缓存说明 error 发生在 request 钩子之前（如 CONNECT 隧道建立失败）
             try:
                 if not self._should_log(flow):
                     return
                 req = flow.request
                 if req.method == "CONNECT":
-                    # 隧道级别失败，只能拿到目标主机名，没有实际 HTTP 请求
                     host = req.pretty_host
                     base = {
                         "id": f"{req.timestamp_start:.6f}",
@@ -153,6 +177,7 @@ class TrafficLogger:
 
     def done(self):
         self._pending.clear()
+        self._killed.clear()
         self.log_file.close()
 
 
