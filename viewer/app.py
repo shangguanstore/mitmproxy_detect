@@ -72,6 +72,7 @@ def filter_entries(entries, params):
     body_search = params.get("body_search", "").strip().lower()
     time_from = params.get("time_from", "")
     time_to = params.get("time_to", "")
+    has_error = params.get("has_error", "")
 
     result = []
     for e in entries:
@@ -79,10 +80,10 @@ def filter_entries(entries, params):
             continue
         if method and e.get("method", "").upper() != method:
             continue
-        sc = e.get("status_code", 0)
-        if status_min and sc < int(status_min):
+        sc = e.get("status_code")
+        if status_min and (sc is None or sc < int(status_min)):
             continue
-        if status_max and sc > int(status_max):
+        if status_max and (sc is None or sc > int(status_max)):
             continue
         if search:
             haystack = (e.get("url", "") + e.get("path", "")).lower()
@@ -91,7 +92,8 @@ def filter_entries(entries, params):
         if body_search:
             rb = (e.get("request_body", "") or "").lower()
             resb = (e.get("response_body", "") or "").lower()
-            if body_search not in rb and body_search not in resb:
+            err = (e.get("error", "") or "").lower()
+            if body_search not in rb and body_search not in resb and body_search not in err:
                 continue
         if time_from:
             try:
@@ -107,6 +109,10 @@ def filter_entries(entries, params):
                     continue
             except ValueError:
                 pass
+        if has_error:
+            is_err = e.get("error") is not None or (e.get("status_code") or 0) >= 400
+            if not is_err:
+                continue
         result.append(e)
     return result
 
@@ -147,6 +153,7 @@ def api_logs():
                 "path": e.get("path", ""),
                 "url": e.get("url"),
                 "status_code": e.get("status_code"),
+                "error": e.get("error"),
                 "content_type": e.get("content_type", ""),
                 "duration_ms": e.get("duration_ms"),
                 "request_size": e.get("request_size", 0),
@@ -197,8 +204,10 @@ def api_stats():
 
     status_dist = defaultdict(int)
     for e in filtered:
-        sc = e.get("status_code", 0)
-        if sc < 200:
+        sc = e.get("status_code")
+        if sc is None:
+            status_dist["ERR"] += 1
+        elif sc < 200:
             status_dist["1xx"] += 1
         elif sc < 300:
             status_dist["2xx"] += 1
@@ -212,7 +221,7 @@ def api_stats():
     durations = [e["duration_ms"] for e in filtered if e.get("duration_ms") is not None]
     avg_dur = round(sum(durations) / len(durations), 2) if durations else 0
 
-    error_count = sum(1 for e in filtered if e.get("status_code", 0) >= 400)
+    error_count = sum(1 for e in filtered if e.get("status_code") is None or e.get("status_code", 0) >= 400)
     error_rate = round(error_count / len(filtered) * 100, 1)
 
     # 时间线：按分钟聚合

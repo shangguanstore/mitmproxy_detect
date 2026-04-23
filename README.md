@@ -120,6 +120,7 @@ curl -s https://httpbin.org/get
 | 详情弹窗 | 请求头、请求体、响应头、响应体（JSON 自动格式化） |
 | 自动刷新 | 每 5 秒自动刷新，实时查看新流量 |
 | 清空日志 | 一键清除日志文件 |
+| 连接失败记录 | 上游连接失败（如 DNS 解析到错误 IP）时仍记录完整请求头/体，状态列显示 **ERR**，详情响应 Tab 显示错误原因 |
 
 ## 日志格式（JSONL）
 
@@ -136,7 +137,8 @@ curl -s https://httpbin.org/get
   "method": "POST",
   "request_headers": {"content-type": "application/json", ...},
   "request_body": "{\"key\": \"value\"}",
-  "status_code": 200,
+  "status_code": 200,         // 连接失败时为 null
+  "error": null,               // 连接失败时为错误原因字符串，成功时为 null
   "response_headers": {"content-type": "application/json", ...},
   "response_body": "{\"id\": 1}",
   "content_type": "application/json; charset=utf-8",
@@ -163,6 +165,9 @@ c=Counter(json.loads(l)['host'] for l in sys.stdin if l.strip())
 # 找出所有 4xx/5xx 错误
 grep -E '"status_code": [45]' logs/traffic.jsonl | python3 -m json.tool
 
+# 找出所有连接失败（DNS/TLS/超时等）
+grep '"error":' logs/traffic.jsonl | grep -v '"error": null' | python3 -m json.tool
+
 # 按耗时排序（最慢的 10 个）
 cat logs/traffic.jsonl | python3 -c "
 import json,sys
@@ -187,3 +192,28 @@ viewer_port: 8888      # 查看器端口
 
 upstream_proxy: http://127.0.0.1:7890  # 上游 Clash 代理，注释掉则直连
 ```
+
+## 故障排查
+
+### 端口已被占用（Address already in use）
+
+重复运行 `start_all.sh` 或上次未正常退出时，旧进程仍在占用 8081 / 8888 端口。
+
+**定位占用进程：**
+
+```bash
+ss -tlnp | grep -E '8081|8888'
+# 输出示例：
+# LISTEN 0 100 0.0.0.0:8081  users:(("mitmdump",pid=2083195,...))
+# LISTEN 0 128 0.0.0.0:8888  users:(("python3",pid=2083196,...))
+```
+
+**一行命令清理：**
+
+```bash
+ss -tlnp | grep -E '8081|8888' | grep -oP 'pid=\K[0-9]+' | xargs -r kill
+```
+
+之后再执行 `./start_all.sh` 即可。
+
+> `ps -ax | grep start` 找不到是因为进程名是 `mitmdump` / `python3`，不含 "start" 关键字，用 `ss -tlnp` 按端口查更准确。

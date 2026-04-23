@@ -95,6 +95,7 @@
   .s-4xx { color: #fb923c; }
   .s-5xx { color: #f87171; }
   .s-1xx { color: #94a3b8; }
+  .s-err  { color: #f87171; }
 
   .url-cell { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #c4d0e8; }
   .host-cell { color: #7eb3f7; font-weight: 500; }
@@ -346,6 +347,7 @@ let currentPage = 1;
 let totalPages = 1;
 let autoRefreshTimer = null;
 let debounceTimer = null;
+let filterHasError = false;
 const modal = new bootstrap.Modal(document.getElementById('detailModal'));
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -354,7 +356,7 @@ function methodBadge(m) {
   return `<span class="badge-method ${cls}">${m}</span>`;
 }
 function statusClass(sc) {
-  if (!sc) return '';
+  if (sc == null) return 's-err';
   if (sc < 200) return 's-1xx';
   if (sc < 300) return 's-2xx';
   if (sc < 400) return 's-3xx';
@@ -390,6 +392,7 @@ function buildParams() {
   if (smax) p.set('status_max', smax);
   if (q) p.set('search', q);
   if (bq) p.set('body_search', bq);
+  if (filterHasError) p.set('has_error', '1');
   p.set('per_page', pp);
   p.set('page', currentPage);
   return p;
@@ -439,7 +442,7 @@ function renderTable(items) {
       <td>${methodBadge(e.method||'')}</td>
       <td class="host-cell small">${escHtml(e.host||'')}</td>
       <td class="url-cell small">${path}${ct}</td>
-      <td class="${statusClass(e.status_code)} fw-bold">${e.status_code||'—'}</td>
+      <td class="${statusClass(e.status_code)} fw-bold">${e.status_code != null ? e.status_code : (e.error ? 'ERR' : '—')}</td>
       <td class="size-cell">${fmtDur(e.duration_ms)}</td>
       <td class="size-cell">${fmtSize(e.response_size)}</td>
     </tr>`;
@@ -503,7 +506,7 @@ async function loadStats() {
 
   // Status chart
   const sc = document.getElementById('statusChart');
-  const scColors = {'2xx':'#4ade80','3xx':'#60a5fa','4xx':'#fb923c','5xx':'#f87171','1xx':'#94a3b8'};
+  const scColors = {'2xx':'#4ade80','3xx':'#60a5fa','4xx':'#fb923c','5xx':'#f87171','1xx':'#94a3b8','ERR':'#f87171'};
   sc.innerHTML = Object.entries(s.status_dist).sort().map(([k,v])=>
     `<span class="badge me-1 px-2 py-1" style="background:${scColors[k]||'#64748b'}20;color:${scColors[k]||'#64748b'};border:1px solid ${scColors[k]||'#64748b'}40">${k}: <strong>${v}</strong></span>`
   ).join('');
@@ -532,8 +535,9 @@ async function showDetail(id) {
   dm.className = 'badge-method ' + (['GET','POST','PUT','PATCH','DELETE','HEAD'].includes(e.method)?`m-${e.method}`:'m-OTHER');
   dm.textContent = e.method || '';
 
-  document.getElementById('dStatus').textContent =
-    `状态 ${e.status_code} · ${fmtDur(e.duration_ms)} · 响应 ${fmtSize(e.response_size)}`;
+  document.getElementById('dStatus').textContent = e.status_code != null
+    ? `状态 ${e.status_code} · ${fmtDur(e.duration_ms)} · 响应 ${fmtSize(e.response_size)}`
+    : `连接失败 · ${e.error || '未知错误'}`;
 
   // Headers
   function renderHeaders(tbodyId, headers) {
@@ -560,7 +564,11 @@ async function showDetail(id) {
     pre.textContent = body;
   }
   renderBody('dReqBody', e.request_body, e.request_headers?.['content-type']||'');
-  renderBody('dResBody', e.response_body, e.content_type);
+  if (e.error) {
+    document.getElementById('dResBody').textContent = '连接失败：' + e.error;
+  } else {
+    renderBody('dResBody', e.response_body, e.content_type);
+  }
 
   // Meta
   const meta = document.getElementById('dMeta');
@@ -573,7 +581,8 @@ async function showDetail(id) {
     ['响应大小', fmtSize(e.response_size)],
     ['耗时', fmtDur(e.duration_ms)],
     ['时间戳', e.timestamp],
-  ].map(([k,v]) => `<tr><td>${escHtml(k)}</td><td>${escHtml(v||'—')}</td></tr>`).join('');
+    ...(e.error ? [['连接错误', e.error]] : []),
+  ].map(([k,v]) => `<tr><td>${escHtml(k)}</td><td>${escHtml(String(v||'—'))}</td></tr>`).join('');
 
   // Reset to first tab
   document.querySelector('#detailTabs .nav-link.active')?.classList.remove('active');
@@ -603,12 +612,14 @@ function resetFilters() {
   document.getElementById('fStatusMax').value = '';
   document.getElementById('fSearch').value = '';
   document.getElementById('fBodySearch').value = '';
+  filterHasError = false;
   applyFilters();
 }
 
 function filterErrors() {
-  document.getElementById('fStatusMin').value = '400';
-  document.getElementById('fStatusMax').value = '599';
+  filterHasError = true;
+  document.getElementById('fStatusMin').value = '';
+  document.getElementById('fStatusMax').value = '';
   applyFilters();
 }
 
