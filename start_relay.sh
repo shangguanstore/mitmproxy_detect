@@ -13,6 +13,23 @@ HTTPS_PORT=$(cfg relay_https_port 443)
 HTTP_INTERNAL=$(cfg relay_http_internal_port 8082)
 HTTPS_INTERNAL=$(cfg relay_https_internal_port 8083)
 
+# 清理残留旧进程和 iptables 规则（防止端口占用）
+cleanup_stale() {
+    echo "[Cleanup] 清理旧进程和 iptables 规则..."
+    # 杀掉占用内部端口的旧进程
+    for port in "$HTTP_INTERNAL" "$HTTPS_INTERNAL"; do
+        if fuser "${port}/tcp" &>/dev/null 2>&1; then
+            echo "[Cleanup] 杀掉占用端口 $port 的旧进程"
+            fuser -k "${port}/tcp" 2>/dev/null || true
+            sleep 0.5
+        fi
+    done
+    # 清理残留的 iptables 规则（忽略不存在的规则）
+    sudo iptables -t nat -D PREROUTING -p tcp --dport "$HTTP_PORT"  -j REDIRECT --to-port "$HTTP_INTERNAL" 2>/dev/null || true
+    sudo iptables -t nat -D PREROUTING -p tcp --dport "$HTTPS_PORT" -j REDIRECT --to-port "$HTTPS_INTERNAL" 2>/dev/null || true
+}
+cleanup_stale
+
 # 如果对外端口 < 1024，用 iptables 重定向到内部高端口（只有 iptables 命令需要 sudo）
 IPTABLES_ADDED=0
 setup_iptables() {
@@ -54,6 +71,9 @@ mitmdump -s traffic_logger.py \
     --listen-host 0.0.0.0 \
     --listen-port "$LISTEN_HTTP" \
     --set termlog_verbosity=warn \
+    --set connection_strategy=lazy \
+    --set block_global=false \
+    --set keep_host_header=true \
     2>&1 | sed 's/^/[HTTP] /' &
 HTTP_PID=$!
 
@@ -65,6 +85,9 @@ mitmdump -s traffic_logger.py \
     --listen-port "$LISTEN_HTTPS" \
     --set termlog_verbosity=warn \
     --set upstream_cert=false \
+    --set connection_strategy=lazy \
+    --set block_global=false \
+    --set keep_host_header=true \
     2>&1 | sed 's/^/[HTTPS] /' &
 HTTPS_PID=$!
 

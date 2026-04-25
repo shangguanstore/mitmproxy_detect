@@ -10,7 +10,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 import yaml
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, Response
 
 app = Flask(__name__)
 
@@ -266,8 +266,77 @@ def api_clear():
     return jsonify({"ok": True})
 
 
+CA_CERT_PATH = Path.home() / ".mitmproxy" / "mitmproxy-ca-cert.pem"
+
+
+@app.route("/ca")
+def ca_cert():
+    if not CA_CERT_PATH.exists():
+        return "CA 证书未找到，请先启动 mitmproxy 生成证书", 404
+    cert_pem = CA_CERT_PATH.read_bytes()
+    return Response(
+        cert_pem,
+        mimetype="application/x-pem-file",
+        headers={"Content-Disposition": "attachment; filename=mitmproxy-ca.pem"},
+    )
+
+
+@app.route("/setup")
+def setup():
+    cfg = load_config()
+    port = cfg.get("viewer_port", 8888)
+    host = request.host.split(":")[0]
+    ca_url = f"http://{host}:{port}/ca"
+    html = f"""<!doctype html>
+<html lang="zh">
+<head><meta charset="utf-8"><title>开发机证书安装</title>
+<style>
+  body {{ font-family: monospace; max-width: 800px; margin: 40px auto; padding: 0 20px; background:#1e1e1e; color:#d4d4d4; }}
+  h2 {{ color: #4ec9b0; }}
+  h3 {{ color: #9cdcfe; margin-top: 2em; }}
+  pre {{ background:#252526; border:1px solid #3c3c3c; padding:16px; border-radius:6px; overflow-x:auto; position:relative; }}
+  .copy-btn {{ position:absolute; top:8px; right:8px; background:#0e639c; color:#fff; border:none; padding:4px 10px; border-radius:4px; cursor:pointer; font-size:12px; }}
+  .copy-btn:hover {{ background:#1177bb; }}
+  .note {{ color:#ce9178; font-size:13px; margin-top:8px; }}
+</style>
+</head>
+<body>
+<h2>开发机一键安装 mitmproxy CA 证书</h2>
+<p>在每台开发机上运行对应命令，安装后重启终端即可。</p>
+
+<h3>macOS</h3>
+<pre id="mac">curl -s {ca_url} -o /tmp/mitmproxy-ca.pem && \\
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/mitmproxy-ca.pem && \\
+echo 'export NODE_EXTRA_CA_CERTS=/tmp/mitmproxy-ca.pem' >> ~/.zshrc && \\
+echo 'done'<button class="copy-btn" onclick="copy('mac')">复制</button></pre>
+
+<h3>Linux (Ubuntu/Debian)</h3>
+<pre id="linux">curl -s {ca_url} | sudo tee /usr/local/share/ca-certificates/mitmproxy-ca.crt > /dev/null && \\
+sudo update-ca-certificates && \\
+echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/mitmproxy-ca.crt' >> ~/.bashrc && \\
+echo 'done'<button class="copy-btn" onclick="copy('linux')">复制</button></pre>
+
+<p class="note">NODE_EXTRA_CA_CERTS 让 Claude Code (Node.js) 信任该证书，系统证书库安装让浏览器等应用信任。</p>
+<p class="note">CA 证书下载地址：<a href="{ca_url}" style="color:#4ec9b0">{ca_url}</a></p>
+
+<script>
+function copy(id) {{
+  const text = document.getElementById(id).textContent.replace('复制', '').trim();
+  navigator.clipboard.writeText(text).then(() => {{
+    const btn = document.querySelector('#' + id + ' .copy-btn');
+    btn.textContent = '已复制';
+    setTimeout(() => btn.textContent = '复制', 2000);
+  }});
+}}
+</script>
+</body>
+</html>"""
+    return html
+
+
 if __name__ == "__main__":
     cfg = load_config()
     port = cfg.get("viewer_port", 8888)
     print(f"Web 查看器启动中：http://0.0.0.0:{port}")
+    print(f"开发机安装证书：http://0.0.0.0:{port}/setup")
     app.run(host="0.0.0.0", port=port, debug=False)
