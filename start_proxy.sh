@@ -16,9 +16,14 @@ print(cfg.get('upstream_proxy') or '')
 echo "启动 TLS 代理层（8444）→ mitmproxy 8081"
 pkill -f tls_proxy.py 2>/dev/null || true
 pkill -f "mitmdump.*traffic_logger" 2>/dev/null || true
+pkill -f "viewer/app.py" 2>/dev/null || true
 sleep 0.3
 TLS_PROXY_PORT=8444 nohup python3 tls_proxy.py > /tmp/tls_proxy.log 2>&1 &
 echo "TLS proxy PID: $!"
+
+echo "启动 Web 查看器（端口 8888）..."
+nohup python3 viewer/app.py > /tmp/viewer.log 2>&1 &
+echo "Viewer PID: $!"
 
 if [ -n "$UPSTREAM" ]; then
     echo "启动 mitmproxy 代理（端口 8081）→ 上游 $UPSTREAM"
