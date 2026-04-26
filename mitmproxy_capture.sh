@@ -10,7 +10,7 @@ MERGE_YAML="$CLASH_DIR/profiles/Merge.yaml"
 MIHOMO_SOCK="/tmp/verge/verge-mihomo.sock"
 
 SERVER_IP="114.132.245.209"
-SERVER_PORT="443"
+SERVER_PORT="8444"
 SERVER_SNI="hxe.7hu.cn"
 PROXY_NAME="mitmproxy-relay"
 TARGET_DOMAIN="api.anthropic.com"
@@ -73,14 +73,18 @@ proxy_block = (
 rule_line    = f"- DOMAIN,{target_domain},{proxy_name}\n"
 exclude_line = f"  - {server_ip}/32\n"
 
-# 1. proxies: 节插入第一条
+# 1. proxies: 节插入第一条（替换同名旧块，确保端口更新）
 pi = next((i for i,l in enumerate(lines) if l.rstrip('\n') == 'proxies:'), None)
 if pi is None: print("错误: 找不到 proxies:"); sys.exit(1)
-if lines[pi+1] != f"- name: {proxy_name}\n":
-    lines.insert(pi+1, proxy_block)
-    print(f"✓ {proxy_name} 已插入 proxies:")
+if pi+1 < len(lines) and lines[pi+1].startswith(f"- name: {proxy_name}"):
+    end = pi + 2
+    while end < len(lines) and lines[end].startswith("  "):
+        end += 1
+    del lines[pi+1:end]
+    print(f"✓ 已替换旧 {proxy_name} 块（更新端口）")
 else:
-    print(f"  proxies: 已有 {proxy_name}，跳过")
+    print(f"✓ {proxy_name} 已插入 proxies:")
+lines.insert(pi+1, proxy_block)
 
 # 2. rules: 节插入第一条
 content = ''.join(lines)

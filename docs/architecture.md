@@ -15,9 +15,9 @@
 │  开发机（国内，macOS）                                               │
 │                                                                     │
 │  Claude Code / Python SDK / curl                                    │
-│       │ HTTPS_PROXY=http://127.0.0.1:7897                           │
+│       │ 通过 Clash TUN 透明拦截（或 HTTPS_PROXY=127.0.0.1:7897）   │
 │       ▼                                                             │
-│  Clash（7897，本地混合代理）                                         │
+│  Clash（7897，本地混合代理 + TUN 模式）                             │
 │       │ 规则匹配 api.anthropic.com → mitmproxy-relay                │
 │       │                                                             │
 │       │ 建立 TLS 连接（SNI=hxe.7hu.cn）                            │
@@ -59,7 +59,7 @@
 
 ```
 Claude Code
-    ↓ HTTP CONNECT api.anthropic.com:443（发往本地 Clash）
+    ↓ HTTPS 请求 api.anthropic.com（通过 Clash TUN 透明拦截）
 Clash（7897）
     ↓ 建立 TLS 连接到 114.132.245.209:8444，SNI=hxe.7hu.cn
     ↓ 在 TLS 内发送 CONNECT api.anthropic.com:443
@@ -91,7 +91,14 @@ mitmproxy（8081，upstream 模式）
 
 mitmproxy 本身不支持"接受 HTTPS 入站再处理 HTTP CONNECT"的组合，tls_proxy 做完 TLS 终止后，mitmproxy 只看到普通的 HTTP CONNECT 请求。
 
-> **端口说明**：8444 由云服务器安全组直接开放，不再需要 iptables 端口重定向。
+> **端口说明**：8444 由云服务器安全组直接开放，不需要 iptables 端口重定向。
+
+端口由环境变量控制，默认值：
+
+```bash
+TLS_PROXY_PORT=8444   # 对外监听端口
+UPSTREAM_PORT=8081    # 转发目标（mitmproxy）
+```
 
 ### 2. mitmproxy（服务端，:8081）
 
@@ -99,12 +106,15 @@ mitmproxy 本身不支持"接受 HTTPS 入站再处理 HTTP CONNECT"的组合，
 mitmdump -s traffic_logger.py \
   --listen-port 8081 \
   --mode upstream:http://127.0.0.1:7890 \
-  --set ssl_insecure=true
+  --set ssl_insecure=true \
+  --set termlog_verbosity=warn
 ```
 
 - **upstream 模式**：收到 CONNECT 后，把请求转发给服务器本地的 Clash（7890），由 Clash 出国访问真实目标
 - **TLS 拦截**：对客户端动态签发目标域名的伪造证书（由 mitmproxy CA 签发），从而解密 HTTPS 内容
 - **ssl_insecure**：允许向上游连接时跳过证书验证
+
+上游代理地址读取自 `config.yaml` 的 `upstream_proxy` 字段，留空则直连。
 
 ### 3. `traffic_logger.py`（mitmproxy 插件）
 
@@ -112,7 +122,7 @@ mitmdump -s traffic_logger.py \
 
 | 钩子 | 触发时机 | 动作 |
 |------|----------|------|
-| `request` | 收到完整请求 | 暂存请求字段，relay 模式下直接拦截返回 |
+| `request` | 收到完整请求 | 暂存请求字段；relay 模式下直接拦截返回 |
 | `response` | 收到完整响应 | 合并请求+响应，追加写入 JSONL |
 | `error` | 连接失败 | 记录错误信息，CONNECT 失败也单独记录 |
 
@@ -121,26 +131,46 @@ mitmdump -s traffic_logger.py \
 - **正向代理模式**（默认）：记录后透传给上游
 - **Relay 模式**（`MITM_RELAY_MODE=1` 或 `config.yaml` 中 `relay_mode: true`）：拦截请求，返回空响应，不转发上游
 
-### 4. Clash 配置（开发机）
+JSONL 每条记录字段：`id`、`timestamp`、`datetime`、`host`、`path`、`url`、`method`、`request_headers`、`request_body`、`request_size`、`status_code`、`error`、`response_headers`、`response_body`、`content_type`、`duration_ms`、`response_size`。
 
-Clash Verge 用户将以下内容写入 Merge.yaml，订阅更新后依然生效：
+### 4. `mitmproxy_capture.sh`（开发机 Clash 配置管理）
+
+> **脚本放在服务器上**，通过 SSH 管道在 Mac 开发机上执行：
+>
+> ```bash
+> # 在服务器上执行（SSH 到 Mac 并注入脚本）
+> ssh -p 2222 sgyy@localhost 'bash -s install' < mitmproxy_capture.sh
+> ssh -p 2222 sgyy@localhost 'bash -s status'  < mitmproxy_capture.sh
+> ssh -p 2222 sgyy@localhost 'bash -s uninstall' < mitmproxy_capture.sh
+> ```
+
+三个子命令：
+
+| 命令 | 作用 |
+|------|------|
+| `install` | 写 Merge.yaml + 直接 patch clash-verge.yaml（proxies: / rules: 节），重载 Clash |
+| `uninstall` | 删除所有注入项，还原 Merge.yaml，重载 Clash |
+| `status` | 查询 Clash 运行时是否已加载规则，打印命中次数 |
+
+install 同时写两处的原因见下文"Clash Verge 订阅刷新问题"。
+
+生成的 Clash 代理配置：
 
 ```yaml
-prepend-proxies:
-  - name: mitmproxy-relay
-    type: http          # HTTP CONNECT 代理
-    server: 114.132.245.209
-    port: 8444          # 直连安全组开放端口
-    tls: true           # 外层 TLS（隐藏 CONNECT 目标，绕过 GFW）
-    skip-cert-verify: true
-    sni: hxe.7hu.cn    # GFW 看到的 SNI
-
-prepend-rules:
-  - DOMAIN,api.anthropic.com,mitmproxy-relay  # 必须是第一条
+- name: mitmproxy-relay
+  type: http          # HTTP CONNECT 代理
+  server: 114.132.245.209
+  port: 8444          # 安全组直接开放
+  tls: true           # 外层 TLS，隐藏 CONNECT 目标，绕过 GFW
+  skip-cert-verify: true
+  sni: hxe.7hu.cn    # GFW 看到的 SNI
 ```
 
-**`skip-cert-verify: true` 说明**：tls_proxy.crt 由 mitmproxy CA 自签，不在系统信任链内，Clash 跳过验证才能建立外层 TLS。  
-**Clash TUN 用户额外配置**：需将服务器 IP 加入 `route-exclude-address`，否则 gvisor 在本地完成 TCP 握手但不实际转发数据。
+`skip-cert-verify: true`：tls_proxy.crt 由 mitmproxy CA 自签，Clash 跳过验证才能建立外层 TLS。
+
+#### Clash TUN 模式（⚠️ 必须配置）
+
+Clash Verge 开启 TUN 模式时，gvisor 在本地完成 TCP 握手但不转发数据，必须将服务器 IP 加入排除列表：
 
 ```yaml
 tun:
@@ -148,7 +178,18 @@ tun:
     - 114.132.245.209/32
 ```
 
-> **Merge.yaml 处理说明**：`prepend-proxies` / `prepend-rules` 是 Clash Verge 应用层语法，mihomo 核心本身不识别。直接调用 mihomo API reload 配置时，需确保 proxy 在 `proxies:` 节、rule 在 `rules:` 节。`mitmproxy_capture.sh` 会同时写两处。
+install 命令会自动处理此项。
+
+#### ⚠️ Clash Verge 订阅刷新后需重新 install
+
+`prepend-proxies` / `prepend-rules` 是 Clash Verge 应用层语法，mihomo 核心不识别。每次 Clash Verge 刷新订阅，会重新生成 `clash-verge.yaml`，将 Merge.yaml 中的 `prepend-*` 字段原样写入，而不合并进 `proxies:` / `rules:` 节——导致规则对 mihomo 不生效，流量恢复直连。
+
+**症状**：`curl --proxy http://127.0.0.1:7897 -k -v https://api.anthropic.com 2>&1 | grep issuer` 输出 Google 的证书而非 mitmproxy。
+
+**解决**：每次订阅刷新后，重新执行一次 install：
+```bash
+ssh -p 2222 sgyy@localhost 'bash -s install' < mitmproxy_capture.sh
+```
 
 ### 5. TLS 证书链
 
@@ -160,23 +201,44 @@ mitmproxy CA（~/.mitmproxy/mitmproxy-ca.pem，含私钥，勿外传）
 
 客户端需要信任 mitmproxy CA，才能接受 mitmproxy 伪造的内层证书（`api.anthropic.com`）。外层证书（`hxe.7hu.cn`）由 Clash 的 `skip-cert-verify: true` 跳过验证，无需安装。
 
+### 6. `viewer/app.py`（Web 查看器，:8888）
+
+Flask 应用，提供流量查看与分析界面。
+
+**页面端点**：
+
+| 路径 | 说明 |
+|------|------|
+| `/` | 流量列表主界面 |
+| `/ca` | 下载 mitmproxy CA 证书（PEM 格式） |
+| `/setup` | 含 macOS / Linux 一键安装命令的页面 |
+
+**API 端点**：
+
+| 路径 | 说明 |
+|------|------|
+| `GET /api/logs` | 分页查询日志，支持多维度过滤 |
+| `GET /api/log/<id>` | 查询单条完整记录（含 body） |
+| `GET /api/stats` | 聚合统计：域名 Top20、方法分布、状态码分布、时间线 |
+| `GET /api/domains` | 所有出现过的域名列表 |
+| `POST /api/clear` | 清空日志文件 |
+
+`/api/logs` 过滤参数：`domain`、`method`、`status_min`/`status_max`、`search`（URL 关键字）、`body_search`（请求/响应体关键字）、`time_from`/`time_to`（Unix 时间戳）、`has_error`；分页参数：`page`、`per_page`（最大 500）。
+
+日志文件有基于 mtime+size 的文件缓存，重复请求不重读磁盘。
+
 ---
 
 ## 开发机证书安装
 
-mitmproxy 做 HTTPS MITM 时，客户端会收到由 mitmproxy CA 签发的伪造证书。Node.js（Claude Code）和浏览器需信任该 CA 才能正常工作。
+mitmproxy 做 HTTPS MITM 时，客户端会收到由 mitmproxy CA 签发的伪造证书。Node.js（Claude Code）需信任该 CA 才能正常工作。
 
-Web 查看器提供了两个便捷端点：
-
-| 路径 | 说明 |
-|------|------|
-| `http://服务器IP:8888/ca` | 下载 mitmproxy CA 证书（PEM 格式） |
-| `http://服务器IP:8888/setup` | 含 macOS / Linux 一键安装命令的页面 |
+Web 查看器提供便捷安装页面：`http://114.132.245.209:8888/setup`
 
 **macOS**（在开发机执行一次）：
 
 ```bash
-curl -s http://服务器IP:8888/ca -o /tmp/mitmproxy-ca.pem && \
+curl -s http://114.132.245.209:8888/ca -o /tmp/mitmproxy-ca.pem && \
 sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/mitmproxy-ca.pem && \
 echo 'export NODE_EXTRA_CA_CERTS=/tmp/mitmproxy-ca.pem' >> ~/.zshrc
 ```
@@ -184,7 +246,7 @@ echo 'export NODE_EXTRA_CA_CERTS=/tmp/mitmproxy-ca.pem' >> ~/.zshrc
 **Linux**（在开发机执行一次）：
 
 ```bash
-curl -s http://服务器IP:8888/ca | sudo tee /usr/local/share/ca-certificates/mitmproxy-ca.crt > /dev/null && \
+curl -s http://114.132.245.209:8888/ca | sudo tee /usr/local/share/ca-certificates/mitmproxy-ca.crt > /dev/null && \
 sudo update-ca-certificates && \
 echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/mitmproxy-ca.crt' >> ~/.bashrc
 ```
@@ -195,11 +257,20 @@ echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/mitmproxy-ca.c
 
 ## 为其他开发机添加捕获
 
-1. 在 Clash Verge 的 Merge.yaml 中添加 proxy + rule（见上方配置）
-2. 在开发机终端执行 `http://服务器IP:8888/setup` 页面中的安装命令
-3. 重启终端，设置 `HTTPS_PROXY=http://127.0.0.1:7897`（或 Claude Code 对应代理端口）
-4. 验证：`curl --proxy http://127.0.0.1:7897 -v https://api.anthropic.com/v1/models 2>&1 | grep issuer`
-   - 期望输出包含：`issuer: CN=mitmproxy; O=mitmproxy`
+1. **安装 Clash 配置**（在服务器上执行）：
+   ```bash
+   ssh -p 2222 <user>@localhost 'bash -s install' < mitmproxy_capture.sh
+   ```
+2. **安装 CA 证书**：访问 `http://114.132.245.209:8888/setup`，按对应系统执行安装命令
+3. **重启终端**，使 `NODE_EXTRA_CA_CERTS` 生效
+
+> Clash TUN 模式下，流量由 TUN 透明拦截，**无需手动设置 `HTTPS_PROXY`**。若使用 curl 等工具手动测试，需指定 `--proxy http://127.0.0.1:7897`。
+
+4. **验证**：
+   ```bash
+   curl --proxy http://127.0.0.1:7897 -k -v https://api.anthropic.com/v1/models 2>&1 | grep issuer
+   # 期望: issuer: CN=mitmproxy; O=mitmproxy
+   ```
 
 ---
 
@@ -211,16 +282,27 @@ echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/mitmproxy-ca.c
 | 8081 | 服务器（本地） | mitmproxy，流量捕获与记录 |
 | 7890 | 服务器（本地） | Clash 出口代理（机场） |
 | 8888 | 服务器（本地/可对外） | Web 查看器，含 /ca、/setup 端点 |
-| 7897 | 开发机（本地） | Clash 混合代理端口 |
+| 7897 | 开发机（本地） | Clash 混合代理端口（TUN 模式时流量自动路由） |
 
 ---
 
 ## Relay 模式（可选）
 
-`start_relay.sh` 启动另一套 mitmproxy 实例，用于**拦截不转发**的场景（如测试、mock）：
+`start_relay.sh` 启动另一套 mitmproxy 实例，用于**拦截不转发**的场景（如接口 mock、测试录制）：
 
-- HTTP relay：监听 8082（iptables 将 80 重定向到此）
-- HTTPS relay：监听 8083（iptables 将 443 重定向到此）
-- 开发机修改 hosts 将目标域名指向服务器 IP，流量进入 relay 后返回空响应并记录
+- **HTTP relay**：监听 8082（对外端口 80，若 < 1024 则 iptables 重定向至 8082）
+- **HTTPS relay**：监听 8083（对外端口 443，若 < 1024 则 iptables 重定向至 8083）
+- mitmproxy 以 `reverse` 模式运行，`MITM_RELAY_MODE=1` 让插件拦截请求、返回空响应并记录
+- 开发机修改 hosts 将目标域名指向服务器 IP，流量进入 relay 后被记录并丢弃，不转发到真实目标
+
+```bash
+./start_relay.sh   # 前台运行，Ctrl+C 自动清理 iptables
+```
+
+关键参数说明：
+- `--mode reverse:http://127.0.0.1:1`：reverse 模式（目标地址由 `keep_host_header` + Host 头决定，1 为占位符）
+- `--set connection_strategy=lazy`：不主动建立上游连接
+- `--set block_global=false`：允许接受所有来源连接
+- `--set upstream_cert=false`（HTTPS relay）：不尝试验证上游证书
 
 config.yaml 中 `relay_mode: false`（默认），正常捕获模式下不涉及此功能。
