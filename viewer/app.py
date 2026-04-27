@@ -259,7 +259,7 @@ def api_domains():
 def api_clear():
     log_path = get_log_path()
     if log_path.exists():
-        log_path.write_text("")
+        os.truncate(log_path, 0)
     _cache["entries"] = []
     _cache["mtime"] = 0
     _cache["size"] = 0
