@@ -31,3 +31,7 @@ ssh -p 2222 sgyy@localhost
 export HTTPS_PROXY=http://127.0.0.1:7897
 export NODE_EXTRA_CA_CERTS=/tmp/mitmproxy-ca.pem
 ```
+
+## 协作规范
+
+- **不要在未被要求的情况下执行 `git commit`**。写完代码后只报告结果，等用户明确说"commit"再提交。
