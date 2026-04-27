@@ -191,6 +191,25 @@ install 命令会自动处理此项。
 ssh -p 2222 sgyy@localhost 'bash -s install' < mitmproxy_capture.sh
 ```
 
+#### 优化：改用 `clash_verge_script.js` 做运行时注入
+
+为了解决 `mitmproxy_capture.sh` 在切换代理、刷新订阅或 Clash Verge 重写配置后容易被覆盖的问题，当前增加了 [`clash_verge_script.js`](../clash_verge_script.js) 作为更稳定的注入方案。
+
+它和直接 patch `clash-verge.yaml` 的区别在于：
+
+- `mitmproxy_capture.sh` 是修改生成后的静态配置文件，后续一旦被 Clash Verge 重建，注入内容就可能丢失
+- `clash_verge_script.js` 是在 Clash Verge 载入最终配置时执行，对运行时 `config` 进行二次注入，不依赖某次生成出来的 YAML 文件长期保持不变
+
+脚本会自动完成以下几件事：
+
+- 注入 `mitmproxy-relay` 代理节点
+- 将该节点加入常见的策略组，并放到首位
+- 注入 `DOMAIN,api.anthropic.com,mitmproxy-relay` 规则
+- 注入 `IP-CIDR,114.132.245.209/32,DIRECT,no-resolve`，避免请求 VPS 自身时发生回环
+- 在开启 TUN 时补充 `route-exclude-address: 114.132.245.209/32`
+
+这样即使用户切换代理、更新订阅，或者 Clash Verge 重新生成底层配置，只要该 Script 仍然挂载，目标流量就会继续被导向 `mitmproxy-relay`，不需要反复执行 `install`。
+
 ### 5. TLS 证书链
 
 ```
