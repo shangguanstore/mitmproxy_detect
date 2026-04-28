@@ -325,3 +325,60 @@ echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/mitmproxy-ca.c
 - `--set upstream_cert=false`（HTTPS relay）：不尝试验证上游证书
 
 config.yaml 中 `relay_mode: false`（默认），正常捕获模式下不涉及此功能。
+
+---
+
+## 常见故障排查
+
+### 症状：`SSL certificate verification failed`，流量未进入 mitmproxy
+
+**场景**：在开发机运行 `claude`（或其他 Node.js 工具）时报 SSL 证书错误，mitmproxy 日志中出现 `connection closed` 或 `Client disconnected` 条目，Web 查看器无新记录。
+
+**根因：终端在配置 `NODE_EXTRA_CA_CERTS` 之前就已开启。**
+
+zsh 只在终端启动时读取 `.zshenv` / `.zshrc`，之后对这些文件的修改不会自动反映到已有终端。若该终端开启于 `NODE_EXTRA_CA_CERTS` 被写入配置文件之前，变量在此终端中为空，Node.js 无法信任 mitmproxy 伪造的证书，TLS 握手失败，mitmproxy 记录连接错误。
+
+**验证**：在问题终端里检查变量是否存在：
+
+```bash
+echo $NODE_EXTRA_CA_CERTS
+# 若输出为空，即为此问题
+```
+
+**解决**：
+
+```bash
+# 方法一：新开一个终端（推荐）
+
+# 方法二：在当前终端手动重载配置
+source ~/.zshrc
+```
+
+**确认修复生效**：
+
+```bash
+curl --proxy http://127.0.0.1:7897 -k -v https://api.anthropic.com/v1/models 2>&1 | grep issuer
+# 期望: issuer: CN=mitmproxy; O=mitmproxy
+```
+
+---
+
+### 症状：流量捕获曾正常，Clash 重载后失效
+
+**根因**：Clash Verge 刷新订阅或切换代理后重建了底层配置，`mitmproxy_capture.sh install` 写入的静态规则被覆盖。
+
+**验证**：
+
+```bash
+ssh -p 2222 sgyy@localhost 'bash -s status' < mitmproxy_capture.sh
+# 若代理显示 None:None 或规则未命中，即为此问题
+```
+
+也可直接测试证书：
+
+```bash
+curl --proxy http://127.0.0.1:7897 -k -v https://api.anthropic.com 2>&1 | grep issuer
+# 若输出 Google/DigiCert 等真实证书而非 mitmproxy，说明流量未经过捕获链路
+```
+
+**解决**：`clash_verge_script.js` 已作为持久注入方案挂载，通常无需手动干预。若仍失效，检查该 Script 是否在 Clash Verge 中处于启用状态。
