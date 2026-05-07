@@ -337,12 +337,28 @@ echo 'done'<button class="copy-btn" onclick="copy('linux-uninstall')">复制</bu
 
 <script>
 function copy(id) {{
-  const text = document.getElementById(id).textContent.replace('复制', '').trim();
-  navigator.clipboard.writeText(text).then(() => {{
-    const btn = document.querySelector('#' + id + ' .copy-btn');
+  const pre = document.getElementById(id);
+  const btn = pre.querySelector('.copy-btn');
+  const clone = pre.cloneNode(true);
+  clone.querySelector('.copy-btn').remove();
+  const text = clone.textContent.trim();
+  const done = () => {{
     btn.textContent = '已复制';
     setTimeout(() => btn.textContent = '复制', 2000);
-  }});
+  }};
+  if (navigator.clipboard && navigator.clipboard.writeText) {{
+    navigator.clipboard.writeText(text).then(done);
+  }} else {{
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    done();
+  }}
 }}
 </script>
 </body>
