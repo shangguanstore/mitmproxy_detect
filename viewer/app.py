@@ -304,17 +304,33 @@ def setup():
 <h2>开发机一键安装 mitmproxy CA 证书</h2>
 <p>在每台开发机上运行对应命令，安装后重启终端即可。</p>
 
-<h3>macOS</h3>
-<pre id="mac">curl -s {ca_url} -o /tmp/mitmproxy-ca.pem && \\
-sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain /tmp/mitmproxy-ca.pem && \\
-echo 'export NODE_EXTRA_CA_CERTS=/tmp/mitmproxy-ca.pem' >> ~/.zshrc && \\
+<h3>macOS 安装</h3>
+<pre id="mac">mkdir -p ~/.certs && curl -s {ca_url} -o ~/.certs/mitmproxy-ca.pem && \\
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/.certs/mitmproxy-ca.pem && \\
+grep -q 'NODE_EXTRA_CA_CERTS' ~/.zshrc || echo 'export NODE_EXTRA_CA_CERTS=~/.certs/mitmproxy-ca.pem' >> ~/.zshrc && \\
 echo 'done'<button class="copy-btn" onclick="copy('mac')">复制</button></pre>
 
-<h3>Linux (Ubuntu/Debian)</h3>
+<h3>macOS 卸载</h3>
+<pre id="mac-uninstall">security find-certificate -a -c "mitmproxy" -Z /Library/Keychains/System.keychain \\
+  | grep "SHA-1" | awk '{{print $3}}' \\
+  | xargs -I{{}} sudo security delete-certificate -Z {{}} /Library/Keychains/System.keychain && \\
+sed -i '' '/NODE_EXTRA_CA_CERTS/d' ~/.zshrc ~/.zshenv ~/.zprofile 2>/dev/null; \\
+rm -f ~/.certs/mitmproxy-ca.pem && \\
+unset NODE_EXTRA_CA_CERTS && \\
+echo 'done'<button class="copy-btn" onclick="copy('mac-uninstall')">复制</button></pre>
+
+<h3>Linux (Ubuntu/Debian) 安装</h3>
 <pre id="linux">curl -s {ca_url} | sudo tee /usr/local/share/ca-certificates/mitmproxy-ca.crt > /dev/null && \\
 sudo update-ca-certificates && \\
-echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/mitmproxy-ca.crt' >> ~/.bashrc && \\
+grep -q 'NODE_EXTRA_CA_CERTS' ~/.bashrc || echo 'export NODE_EXTRA_CA_CERTS=/usr/local/share/ca-certificates/mitmproxy-ca.crt' >> ~/.bashrc && \\
 echo 'done'<button class="copy-btn" onclick="copy('linux')">复制</button></pre>
+
+<h3>Linux (Ubuntu/Debian) 卸载</h3>
+<pre id="linux-uninstall">sudo rm -f /usr/local/share/ca-certificates/mitmproxy-ca.crt && \\
+sudo update-ca-certificates --fresh && \\
+sed -i '/NODE_EXTRA_CA_CERTS/d' ~/.bashrc && \\
+unset NODE_EXTRA_CA_CERTS && \\
+echo 'done'<button class="copy-btn" onclick="copy('linux-uninstall')">复制</button></pre>
 
 <p class="note">NODE_EXTRA_CA_CERTS 让 Claude Code (Node.js) 信任该证书，系统证书库安装让浏览器等应用信任。</p>
 <p class="note">CA 证书下载地址：<a href="{ca_url}" style="color:#4ec9b0">{ca_url}</a></p>
